@@ -30,7 +30,10 @@ contract ProposalPayloadE2ETest is Test {
 
     function testExecute() public {
         // Pre-execution assertations
-
+        // I'm having issues what to even test here. if the deployment of the new interest rate strategy is correct,
+        //      there is nothing to verify here except that the new interest rate strategy address is actually set
+        //      but testing that is testing the protocol itself and not my interaction with it....
+        //          pls help me out -_-
         // Pass vote and execute proposal
         GovHelpers.passVoteAndExecute(vm, proposalId);
 
