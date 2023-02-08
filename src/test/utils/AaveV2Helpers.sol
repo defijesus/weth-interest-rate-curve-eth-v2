@@ -3,7 +3,7 @@ pragma solidity 0.8.17;
 
 import "@forge-std/Vm.sol";
 import "@forge-std/console.sol";
-import {AaveAddressBookV2} from "@aave-address-book/AaveAddressBook.sol";
+import {AaveV2Ethereum} from "@aave-address-book/AaveAddressBook.sol";
 import {TokenData} from "@aave-address-book/AaveV2.sol";
 import "@openzeppelin/token/ERC20/IERC20.sol";
 
@@ -204,19 +204,18 @@ library AaveV2Helpers {
         ReserveConfig[] configs;
     }
 
-    function _getReservesConfigs(bool withLogs, string memory marketName)
+    function _getReservesConfigs(bool withLogs)
         internal
         view
         returns (ReserveConfig[] memory)
     {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(AaveAddressBookV2.AaveV2Ethereum);
         LocalVars memory vars;
-        vars.reserves = market.AAVE_PROTOCOL_DATA_PROVIDER.getAllReservesTokens();
+        vars.reserves = AaveV2Ethereum.AAVE_PROTOCOL_DATA_PROVIDER.getAllReservesTokens();
         vars.configs = new ReserveConfig[](vars.reserves.length);
 
         for (uint256 i = 0; i < vars.reserves.length; i++) {
-            vars.configs[i] = _getStructReserveConfig(vars.reserves[i], marketName);
-            ReserveTokens memory reserveTokens = _getStructReserveTokens(vars.configs[i].underlying, marketName);
+            vars.configs[i] = _getStructReserveConfig(vars.reserves[i]);
+            ReserveTokens memory reserveTokens = _getStructReserveTokens(vars.configs[i].underlying);
             vars.configs[i].aToken = reserveTokens.aToken;
             vars.configs[i].variableDebtToken = reserveTokens.variableDebtToken;
             vars.configs[i].stableDebtToken = reserveTokens.stableDebtToken;
@@ -229,13 +228,13 @@ library AaveV2Helpers {
     }
 
     /// @dev Ugly, but necessary to avoid Stack Too Deep
-    function _getStructReserveConfig(TokenData memory reserve, string memory marketName)
+    function _getStructReserveConfig(TokenData memory reserve)
         internal
         view
         returns (ReserveConfig memory)
     {
         ReserveConfig memory localConfig;
-        ConfigLite memory configData = _getConfigData(marketName, reserve.tokenAddress);
+        ConfigLite memory configData = _getConfigData(reserve.tokenAddress);
         localConfig.symbol = reserve.symbol;
         localConfig.underlying = reserve.tokenAddress;
         localConfig.decimals = configData.decimals;
@@ -254,8 +253,7 @@ library AaveV2Helpers {
     }
 
     /// @dev to fix stack too deep
-    function _getConfigData(string memory marketName, address tokenAddress) internal view returns (ConfigLite memory) {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
+    function _getConfigData(address tokenAddress) internal view returns (ConfigLite memory) {
         (
             uint256 decimals,
             uint256 ltv,
@@ -267,8 +265,8 @@ library AaveV2Helpers {
             bool stableBorrowRateEnabled,
             bool isActive,
             bool isFrozen
-        ) = market.AAVE_PROTOCOL_DATA_PROVIDER.getReserveConfigurationData(tokenAddress);
-        address interestRateStrategyAddress = market.POOL.getReserveData(tokenAddress).interestRateStrategyAddress;
+        ) = AaveV2Ethereum.AAVE_PROTOCOL_DATA_PROVIDER.getReserveConfigurationData(tokenAddress);
+        address interestRateStrategyAddress = AaveV2Ethereum.POOL.getReserveData(tokenAddress).interestRateStrategyAddress;
         return
             ConfigLite({
                 decimals: decimals,
@@ -286,14 +284,13 @@ library AaveV2Helpers {
     }
 
     /// @dev Ugly, but necessary to avoid Stack Too Deep
-    function _getStructReserveTokens(address underlyingAddress, string memory marketName)
+    function _getStructReserveTokens(address underlyingAddress)
         internal
         view
         returns (ReserveTokens memory)
     {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         ReserveTokens memory reserveTokens;
-        (reserveTokens.aToken, reserveTokens.stableDebtToken, reserveTokens.variableDebtToken) = market
+        (reserveTokens.aToken, reserveTokens.stableDebtToken, reserveTokens.variableDebtToken) = AaveV2Ethereum
             .AAVE_PROTOCOL_DATA_PROVIDER
             .getReserveTokensAddresses(underlyingAddress);
 
@@ -380,9 +377,8 @@ library AaveV2Helpers {
         InterestStrategyValues memory expectedStrategyValues,
         string memory marketName
     ) internal view {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         IReserveInterestRateStrategy strategy = IReserveInterestRateStrategy(
-            market.POOL.getReserveData(asset).interestRateStrategyAddress
+            AaveV2Ethereum.POOL.getReserveData(asset).interestRateStrategyAddress
         );
 
         require(address(strategy) == expectedStrategy, "_validateInterestRateStrategy() : INVALID_STRATEGY_ADDRESS");
@@ -396,7 +392,7 @@ library AaveV2Helpers {
             "_validateInterestRateStrategy() : INVALID_OPTIMAL_RATE"
         );
         require(
-            strategy.addressesProvider() == address(market.POOL_ADDRESSES_PROVIDER),
+            strategy.addressesProvider() == address(AaveV2Ethereum.POOL_ADDRESSES_PROVIDER),
             "_validateInterestRateStrategy() : INVALID_ADDRESSES_PROVIDER"
         );
         require(
@@ -503,8 +499,7 @@ library AaveV2Helpers {
         ReserveTokens memory expectedImpls,
         string memory marketName
     ) internal {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
-        vm.startPrank(address(market.POOL_CONFIGURATOR));
+        vm.startPrank(address(AaveV2Ethereum.POOL_CONFIGURATOR));
         require(
             IInitializableAdminUpgradeabilityProxy(config.aToken).implementation() == expectedImpls.aToken,
             "_validateReserveTokensImpls() : INVALID_ATOKEN_IMPL"
@@ -532,14 +527,13 @@ library AaveV2Helpers {
         address aToken,
         string memory marketName
     ) internal {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         uint256 aTokenBefore = IERC20(aToken).balanceOf(onBehalfOf);
         vm.deal(depositor, 1 ether);
         vm.startPrank(depositor);
         if (approve) {
-            IERC20(asset).approve(address(market.POOL), amount);
+            IERC20(asset).approve(address(AaveV2Ethereum.POOL), amount);
         }
-        market.POOL.deposit(asset, amount, onBehalfOf, 0);
+        AaveV2Ethereum.POOL.deposit(asset, amount, onBehalfOf, 0);
         vm.stopPrank();
         uint256 aTokenAfter = IERC20(aToken).balanceOf(onBehalfOf);
 
@@ -556,11 +550,10 @@ library AaveV2Helpers {
         address debtToken,
         string memory marketName
     ) public {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         uint256 debtBefore = IERC20(debtToken).balanceOf(onBehalfOf);
         vm.deal(borrower, 1 ether);
         vm.startPrank(borrower);
-        market.POOL.borrow(asset, amount, interestRateMode, 0, onBehalfOf);
+        AaveV2Ethereum.POOL.borrow(asset, amount, interestRateMode, 0, onBehalfOf);
         vm.stopPrank();
 
         uint256 debtAfter = IERC20(debtToken).balanceOf(onBehalfOf);
@@ -578,14 +571,13 @@ library AaveV2Helpers {
         bool approve,
         string memory marketName
     ) internal {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         uint256 debtBefore = IERC20(debtToken).balanceOf(debtor);
         vm.deal(whoRepays, 1 ether);
         vm.startPrank(whoRepays);
         if (approve) {
-            IERC20(asset).approve(address(market.POOL), amount);
+            IERC20(asset).approve(address(AaveV2Ethereum.POOL), amount);
         }
-        market.POOL.repay(asset, amount, interestRateMode, debtor);
+        AaveV2Ethereum.POOL.repay(asset, amount, interestRateMode, debtor);
         vm.stopPrank();
 
         uint256 debtAfter = IERC20(debtToken).balanceOf(debtor);
@@ -602,12 +594,11 @@ library AaveV2Helpers {
         address aToken,
         string memory marketName
     ) internal {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
         uint256 aTokenBefore = IERC20(aToken).balanceOf(whoWithdraws);
         vm.deal(whoWithdraws, 1 ether);
         vm.startPrank(whoWithdraws);
 
-        market.POOL.withdraw(asset, amount, to);
+        AaveV2Ethereum.POOL.withdraw(asset, amount, to);
         vm.stopPrank();
         uint256 aTokenAfter = IERC20(aToken).balanceOf(whoWithdraws);
 
@@ -622,10 +613,9 @@ library AaveV2Helpers {
         address expectedSource,
         string memory marketName
     ) external view {
-        AaveAddressBookV2.Market memory market = AaveAddressBookV2.getMarket(marketName);
 
         require(
-            market.ORACLE.getSourceOfAsset(asset) == expectedSource,
+            AaveV2Ethereum.ORACLE.getSourceOfAsset(asset) == expectedSource,
             "_validateAssetSourceOnOracle() : INVALID_PRICE_SOURCE"
         );
     }
